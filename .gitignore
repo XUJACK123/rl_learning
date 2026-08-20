@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Reinforcement learning artifacts
+# *.pth
+# *.pt
+# *.onnx
+# *.engine
+# *.log
+
+# Tracking project outputs
+tracking_project/result/
+
+# TensorBoard / experiment logs
+runs/
+tb_logs/
+wandb/
+lightning_logs/
+
+# Datasets / large binary data
+*.zip
+*.tar.gz
+*.tgz
+*.npz
+*.npy
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

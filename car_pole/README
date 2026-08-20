@@ -1,0 +1,4 @@
+## place of change
+- using the Huber loss (now is MSE loss)
+- epsilon to low(0.995->0.999)
+- change to double DQN

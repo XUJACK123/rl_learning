@@ -6,6 +6,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
 env = gym.make("CartPole-v1")
 """
 four action space
@@ -24,11 +27,11 @@ class DQN_training(nn.Module):
     def __init__(self, state_dim, action_dim):
         super().__init__()
         self.fc = nn.Sequential(
-            nn.Linear(state_dim, 128),
+            nn.Linear(state_dim, 256),
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(256, 256),
             nn.ReLU(),
-            nn.Linear(128, action_dim),
+            nn.Linear(256, action_dim),
         )
 
     def forward(self, x):
@@ -47,11 +50,11 @@ class ReplayBuffer:
             *random.sample(self.buffer, batch_size)
         )
         return (
-            torch.FloatTensor(np.array(state)),
-            torch.LongTensor(action),
-            torch.FloatTensor(reward),
-            torch.FloatTensor(np.array(next_state)),
-            torch.FloatTensor(done),
+            torch.FloatTensor(np.array(state)).to(device),
+            torch.LongTensor(action).to(device),
+            torch.FloatTensor(reward).to(device),
+            torch.FloatTensor(np.array(next_state)).to(device),
+            torch.FloatTensor(done).to(device),
         )
 
     def __len__(self):
@@ -60,20 +63,21 @@ class ReplayBuffer:
 # training progress
 def train_dqn():
     gamma = 0.99
-    batch_size = 64
+    batch_size = 256
     epsilon = 1.0
-    epsilon_decay = 0.995
+    epsilon_decay = 0.999
     epsilon_min = 0.05
-    learning_rate = 0.001
+    learning_rate = 3e-4
     target_update_freq = 10
 
     # for eval network, the parameters and target will change continuously
-    policy_net = DQN_training(state_dim, action_dim)
+    policy_net = DQN_training(state_dim, action_dim).to(device)
     # for target network, the parameters and theQ will not change, for calculating the target Q value
-    target_net = DQN_training(state_dim, action_dim)
+    target_net = DQN_training(state_dim, action_dim).to(device)
+    target_net.load_state_dict(policy_net.state_dict())
     optimizer = optim.Adam(policy_net.parameters(), lr=learning_rate)
-    memory = ReplayBuffer(capacity=10000)
-    for episode in range(300):
+    memory = ReplayBuffer(capacity=50000)
+    for episode in range(400):
         state, _ = env.reset()
         total_reward = 0
         done = False
@@ -84,7 +88,7 @@ def train_dqn():
             # exploitation, using the policy network to choose the best action
             else:
                 with torch.no_grad():
-                    state_tensor = torch.FloatTensor(state).unsqueeze(0)
+                    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
                     action = policy_net(state_tensor).argmax().item()
             next_state, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
@@ -96,17 +100,20 @@ def train_dqn():
                 states, actions, rewards, next_states, dones = memory.sample(batch_size)
                 q_values = policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
                 with torch.no_grad():
-                    next_q_values = target_net(next_states).max(1)[0]
+                    # Double DQN: 用 policy 网络选动作，用 target 网络评价值
+                    next_actions = policy_net(next_states).argmax(1, keepdim=True)
+                    next_q_values = target_net(next_states).gather(1, next_actions).squeeze(1)
                     target_q_values = rewards + gamma * next_q_values * (1 - dones)
-                loss = nn.MSELoss()(q_values, target_q_values)
+                loss = nn.SmoothL1Loss()(q_values, target_q_values)  # Huber loss
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 1.0)  # 梯度裁剪
                 optimizer.step()
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
         if episode % target_update_freq == 0:
             target_net.load_state_dict(policy_net.state_dict())
 
-        if episode % 100 == 0:
+        if episode % 50 == 0:
             print(f"Episode: {episode}, Total Reward: {total_reward}, Epsilon: {epsilon:.4f}")
             print(f"\n demostration of the vision of the agent")
             eval_env = gym.make("CartPole-v1", render_mode="human")
@@ -115,7 +122,7 @@ def train_dqn():
             eval_steps = 0
             while not eval_done:
                 with torch.no_grad():
-                    state_tensor = torch.FloatTensor(eval_state).unsqueeze(0)
+                    state_tensor = torch.FloatTensor(eval_state).unsqueeze(0).to(device)
                     action = policy_net(state_tensor).argmax().item()
                 eval_state, _, terminated, truncated, _ = eval_env.step(action)
                 eval_done = terminated or truncated
@@ -132,7 +139,7 @@ def train_dqn():
     steps = 0
     while not done:
         with torch.no_grad():
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
             action = policy_net(state_tensor).argmax().item()
         next_state, reward, terminated, truncated, _ = test_env.step(action)
         done = terminated or truncated

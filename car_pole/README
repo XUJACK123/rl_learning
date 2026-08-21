@@ -1,5 +1,29 @@
 ## place of change
+
+# target:
+keep the car in the screen for 700 steps
+
 1. 初始版本：
 - 每次向左/向右给予10N的力
 - 奖励条件为存活每一步就+1
 - 失败条件为棍子移动幅度超过+-30度/出界
+
+2. 观察到每次差不多停下时有会因为下一步必须要给力，所以达不到平衡，增加动作
+- 1.给左边10N，2.给左边5N，3.给左边1N，4.不给力，5.给右边1N，6.给右边5N，7.给右边10N
+
+3. 观察到车开始不想移动，有可能是因为reward设置问题
+- 取消不给力reward += 1
+- 密集的、和角度挂钩的 reward（加速学习）
+- adding:
+    reward -= 0.1 * abs(theta)  # learning the angle
+    reward -= 0.05 * abs(x)     # learning the place
+
+4. the reward is not good as expected
+- reset the amount of reward
+- reduce the action state
+- add the episode to 1000
+result:
+- the result of agent (14 step, continue to one step) is worse than doing nothing
+- 
+
+5. increase the reward/penalty of the angle (from 0.2 to 1.0)

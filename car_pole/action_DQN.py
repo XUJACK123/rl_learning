@@ -1,6 +1,6 @@
 import gymnasium as gym
-from car_pole import car_pole_env  # 导入即触发 gym.register("CustomCartPole-v0")
-from car_pole.DQN import DQNAgent, device
+from car_pole_env import CustomCartPoleEnv  # 导入即触发 gym.register("CustomCartPole-v0")
+from DQN import DQNAgent, device
 
 def run_episode(agent, env, train=True, batch_size=256):
     """跑一个回合,train=True 时收集经验并做梯度更新，返回总奖励。"""
@@ -23,14 +23,22 @@ def run_episode(agent, env, train=True, batch_size=256):
 
 def evaluate(agent, render=True):
     """用渲染环境评估一个回合，返回存活步数。"""
-    eval_env = gym.make("CustomCartPole-v0", render_mode="human" if render else None)
+    eval_env = gym.make("CustomCartPole-v0", render_mode="human" if render else None)             
     try:
-        return run_episode(agent, eval_env, train=False)
-    finally:
-        eval_env.close()
+        state, _ = eval_env.reset()                                                               
+        steps = 0 
+        done = False                                                                              
+        while not done:                                                                           
+            action = agent.select_action(state, eval_env.action_space, epsilon=0.0)               
+            state, _, terminated, truncated, _ = eval_env.step(action)                            
+            done = terminated or truncated                                                        
+            steps += 1                                                                            
+        return steps                                                                              
+    finally:                                                                                      
+        eval_env.close() 
 
 
-def train_dqn(num_episodes=400, batch_size=256, eval_every=50):
+def train_dqn(num_episodes=300, batch_size=256, eval_every=50):
     # 训练环境不渲染，速度比 render_mode="human" 快很多
     env = gym.make("CustomCartPole-v0")
     state_dim = env.observation_space.shape[0]

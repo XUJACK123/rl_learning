@@ -27,9 +27,9 @@ class CustomCartPoleEnv(gym.Env):
         self.x_threshold = 2.4
         self.theta_threshold_radians = 30 * 2 * math.pi / 360
 
-        # ---------- 2. 动作空间与观察空间 ----------
-        # 动作：0 = 向左推，1 = 向右推
-        self.action_space = spaces.Discrete(2)
+        # action
+        self.action_space = spaces.Discrete(5)
+        self.forces = [-10, -5, 0, 5, 10]
 
         # 观察：[小车位置, 小车速度, 摆杆角度, 摆杆角速度]
         high = np.array(
@@ -80,7 +80,7 @@ class CustomCartPoleEnv(gym.Env):
         assert self.action_space.contains(action), f"{action!r} ({type(action)}) 不是合法动作"
 
         x, x_dot, theta, theta_dot = self.state
-        force = self.force_mag if action == 1 else -self.force_mag
+        force = self.forces[action]
 
         costheta = math.cos(theta)
         sintheta = math.sin(theta)
@@ -111,11 +111,8 @@ class CustomCartPoleEnv(gym.Env):
         # CartPole 的奖励约定：终止那一步也算 +1
         if not terminated:
             reward = 1.0
-        elif self.steps_beyond_terminated is None:
-            self.steps_beyond_terminated = 0
-            reward = 1.0
+            reward -= 1.0 * abs(theta)  # learning the angle
         else:
-            self.steps_beyond_terminated += 1
             reward = 0.0
 
         if self.render_mode == "human":
@@ -190,7 +187,7 @@ class CustomCartPoleEnv(gym.Env):
 
 gym.register(
     id="CustomCartPole-v0",
-    entry_point="car_pole.car_pole_env:CustomCartPoleEnv",
+    entry_point="car_pole_env:CustomCartPoleEnv",
     max_episode_steps=700,
     reward_threshold=475.0,
 )

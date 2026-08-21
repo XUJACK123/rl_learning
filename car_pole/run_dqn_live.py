@@ -14,6 +14,7 @@ import gymnasium as gym
 import torch
 import torch.nn as nn
 import pygame
+from car_pole_env import CustomCartPoleEnv  # 触发注册 CustomCartPole-v0
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -49,7 +50,7 @@ def main():
     if not os.path.exists(model_path):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(script_dir, "dqn_cartpole.pth")
-    env = gym.make("CartPole-v1", render_mode="human")
+    env = gym.make("CustomCartPole-v0", render_mode="human")
 
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n

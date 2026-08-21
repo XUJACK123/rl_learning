@@ -55,7 +55,7 @@ class DQNAgent:
         learning_rate=3e-4,
         gamma=0.99,
         epsilon=1.0,
-        epsilon_decay=0.999,
+        epsilon_decay=0.995,
         epsilon_min=0.05,
         target_update_freq=10,
         buffer_capacity=50000,

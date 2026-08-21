@@ -19,7 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class DQN_training(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden=128):
+    def __init__(self, state_dim, action_dim, hidden=256):
         super().__init__()
         self.fc = nn.Sequential(
             nn.Linear(state_dim, hidden),

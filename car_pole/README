@@ -1,4 +1,5 @@
 ## place of change
-- using the Huber loss (now is MSE loss)
-- epsilon to low(0.995->0.999)
-- change to double DQN
+1. 初始版本：
+- 每次向左/向右给予10N的力
+- 奖励条件为存活每一步就+1
+- 失败条件为棍子移动幅度超过+-30度/出界

@@ -1,7 +1,5 @@
-## place of change
-
-# target:
-keep the car in the screen for 700 steps
+# 目标:
+运行 700 steps
 
 1. 初始版本：
 - 每次向左/向右给予10N的力
@@ -15,15 +13,26 @@ keep the car in the screen for 700 steps
 - 取消不给力reward += 1
 - 密集的、和角度挂钩的 reward（加速学习）
 - adding:
+    如果停下来就reward +1
     reward -= 0.1 * abs(theta)  # learning the angle
     reward -= 0.05 * abs(x)     # learning the place
 
-4. the reward is not good as expected
-- reset the amount of reward
-- reduce the action state
-- add the episode to 1000
+4. 观察到结果不咋地
+- 重新设置
+- 减少action state (7 -> 2)
+- ε改为0.995
+- 增加episode到1000
+- 去除不动就增加reward
 result:
-- the result of agent (14 step, continue to one step) is worse than doing nothing
-- 
+- 结果更加的糟糕 (14 step) 比什么都不做还要弱
 
-5. increase the reward/penalty of the angle (from 0.2 to 1.0)
+5. 增加角度的处罚
+- 结果能到达700步
+
+# 问题总结：
+1. 处罚力度不够，有和没有一样
+- 这导致了活着每一步都拿到正奖励（+1），所以"右推"这条路一路上全是正反馈，有最后一步（done=1，reward=0）才是真实的反面信
+  号。而这个信号要传回前面，只能一步传一步——经过 13 层 bootstrap，每一层还被大量"自洽的正反馈样本"稀释
+2. 模型没有尝试别的方法，就算直到一直向右推不好也没有别的解决方法，argmax也是向右推
+- 为什么不会尝试别的呢？
+    怀疑是后面都直接没有探索了，之前的数据又有大量是向右推的数据，因此会导致没有新的东西传入

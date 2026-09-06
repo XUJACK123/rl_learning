@@ -110,8 +110,8 @@ class CustomCartPoleEnv(gym.Env):
 
         # CartPole 的奖励约定：终止那一步也算 +1
         if not terminated:
-            reward = 1.0
-            reward -= 1.0 * abs(theta)  # learning the angle
+            reward = 2.0
+            reward -= 0.5 * abs(x)  # learning the angle
         else:
             reward = 0.0
 

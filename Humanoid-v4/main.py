@@ -10,16 +10,18 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 
 import mujoco
+import mujoco.viewer  # 显式加载 viewer 子模块（mujoco 2.x 需要）
 import numpy as np
 
 from action_iLQG import iLQG
-from env import HumanoidEnv, StandParams
+from env import HumanoidEnv, StandParams, SteppingParams
 
 
 def _make_namespace() -> tuple[dict, StandParams, list[float]]:
@@ -35,6 +37,8 @@ def _make_namespace() -> tuple[dict, StandParams, list[float]]:
         target_torso_pitch: float | None = None,
         target_torso_roll: float | None = None,
         target_torso_heading: float | None = None,
+        target_torso_velocity_xy: tuple[float, float] | None = None,
+        target_turning_speed: float | None = None,
     ) -> None:
         if target_torso_height is not None:
             params.target_height = float(target_torso_height)
@@ -44,6 +48,13 @@ def _make_namespace() -> tuple[dict, StandParams, list[float]]:
             params.target_roll = float(target_torso_roll)
         if target_torso_heading is not None:
             params.target_heading = float(target_torso_heading)
+        if target_torso_velocity_xy is not None:
+            params.target_velocity_xy = (
+                float(target_torso_velocity_xy[0]),
+                float(target_torso_velocity_xy[1]),
+            )
+        if target_turning_speed is not None:
+            params.target_turning_speed = float(target_turning_speed)
 
     def set_feet_pos_parameters(
         feet_name: str, lift_height: float | None = None
@@ -53,6 +64,24 @@ def _make_namespace() -> tuple[dict, StandParams, list[float]]:
         else:
             params.feet_lift[feet_name] = float(lift_height)
 
+    def set_feet_stepping_parameters(
+        feet_name: str,
+        stepping_frequency: float = 0.0,
+        air_ratio: float = 0.0,
+        phase_offset: float = 0.0,
+        swing_up_down: float = 0.0,
+        swing_forward_back: float = 0.0,
+        should_activate: bool = True,
+    ) -> None:
+        params.feet_stepping[feet_name] = SteppingParams(
+            frequency=float(stepping_frequency),
+            air_ratio=float(air_ratio),
+            phase_offset=float(phase_offset),
+            swing_up_down=float(swing_up_down),
+            swing_forward_back=float(swing_forward_back),
+            active=bool(should_activate),
+        )
+
     def execute_plan(plan_duration: float = 3.0) -> None:
         duration[0] = float(plan_duration)
 
@@ -60,6 +89,7 @@ def _make_namespace() -> tuple[dict, StandParams, list[float]]:
         "reset_reward": reset_reward,
         "set_torso_targets": set_torso_targets,
         "set_feet_pos_parameters": set_feet_pos_parameters,
+        "set_feet_stepping_parameters": set_feet_stepping_parameters,
         "execute_plan": execute_plan,
         "np": np,
         "numpy": np,
@@ -84,18 +114,21 @@ def _report(env: HumanoidEnv) -> None:
 
 
 def main() -> None:
+    # 默认 reward_script.py 的绝对路径（相对 main.py 所在目录），
+    # 这样无论从哪个目录运行 main.py 都能找到脚本。
+    _script_default = Path(__file__).resolve().parent / "reward_script.py"
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--script", type=Path, default=Path("reward_script.py"))
+    ap.add_argument("--script", type=Path, default=_script_default)
     ap.add_argument("--horizon", type=int, default=20, help="iLQG horizon (steps)")
-    ap.add_argument("--iters", type=int, default=2, help="iLQG iterations per plan")
+    ap.add_argument("--iters", type=int, default=4, help="iLQG iterations per plan")
     ap.add_argument("--replan", type=int, default=10,
                     help="replan every N sim steps")
     ap.add_argument("--max-steps", type=int, default=1200)
     ap.add_argument("--no-view", action="store_true", help="run headless")
     ap.add_argument("--save-video", type=Path, default=None,
                     help="save rollout as mp4 (needs ffmpeg) or PNG frames")
-    ap.add_argument("--width", type=int, default=640)
-    ap.add_argument("--height", type=int, default=480)
+    ap.add_argument("--width", type=int, default=1280)
+    ap.add_argument("--height", type=int, default=800)
     args = ap.parse_args()
 
     params, duration = run_reward_script(args.script)
@@ -104,6 +137,8 @@ def main() -> None:
         f"pitch={math.degrees(params.target_pitch):.1f}deg "
         f"roll={math.degrees(params.target_roll):.1f}deg "
         f"heading={math.degrees(params.target_heading) % 360:.1f}deg "
+        f"vel_xy={params.target_velocity_xy} "
+        f"turning={params.target_turning_speed:.3f}rad/s "
         f"feet={params.feet_lift} plan={duration}s"
     )
 

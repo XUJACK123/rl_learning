@@ -53,6 +53,7 @@ class iLQG:
         self.k: list[np.ndarray] = []
         self.x_hat: list[np.ndarray] = []
         self.last_cost = np.inf
+        self.t0 = 0.0   # 本次规划的起始时间（秒）
 
     # ---------------------------------------------------------------- helpers
     def _set(self, x: np.ndarray, u: np.ndarray) -> None:
@@ -64,9 +65,9 @@ class iLQG:
         mujoco.mj_step(self.env.m, self.d)
         return self.env.get_state(self.d)
 
-    def _cost_at(self, x: np.ndarray, u: np.ndarray) -> float:
+    def _cost_at(self, x: np.ndarray, u: np.ndarray, t: int) -> float:
         self._set(x, u)
-        return self.env.cost(self.params, self.d)
+        return self.env.cost(self.params, self.d, self.t0 + t * self.env.dt)
 
     def _dynamics_jacobians(self, x: np.ndarray, u: np.ndarray):
         # Finite-difference dynamics linearisation in the full 55-dim state
@@ -96,8 +97,9 @@ class iLQG:
         self._set(x, u)  # restore nominal workspace
         return A, B
 
-    def _cost_quadratics(self, x: np.ndarray, u: np.ndarray):
-        return self.env.cost_quadratics(self.params, x, u, self.d)
+    def _cost_quadratics(self, x: np.ndarray, u: np.ndarray, t: int):
+        return self.env.cost_quadratics(
+            self.params, x, u, self.d, time=self.t0 + t * self.env.dt)
 
     # -------------------------------------------------------------- rollouts
     def forward(self, x0: np.ndarray, U: np.ndarray, alpha: float,
@@ -112,10 +114,10 @@ class iLQG:
                 u = u + alpha * self.k[t] + self.K[t] @ (x - self.x_hat[t])
             u = np.clip(u, self.u_lo, self.u_hi)
             us.append(u)
-            cost += self._cost_at(x, u)
+            cost += self._cost_at(x, u, t)
             x = self._step(x, u)
             xs.append(x)
-        cost += self._cost_at(x, np.zeros(self.nu))  # terminal state cost
+        cost += self._cost_at(x, np.zeros(self.nu), self.T)  # terminal state cost
         return xs, np.asarray(us), cost
 
     # ----------------------------------------------------------- backward pass
@@ -124,13 +126,13 @@ class iLQG:
 
         # terminal cost quadratics (no control at the terminal state)
         lx, _, lxx, _, _ = self._cost_quadratics(
-            self.x_hat[-1], np.zeros(self.nu))
+            self.x_hat[-1], np.zeros(self.nu), self.T)
         Vx, Vxx = lx, lxx
 
         for t in reversed(range(self.T)):
             A, B = self._dynamics_jacobians(self.x_hat[t], self.u_hat[t])
             lx, lu, lxx, luu, lux = self._cost_quadratics(
-                self.x_hat[t], self.u_hat[t])
+                self.x_hat[t], self.u_hat[t], t)
 
             Qx = lx + A.T @ Vx
             Qu = lu + B.T @ Vx
@@ -158,6 +160,8 @@ class iLQG:
     def plan(self, x0: np.ndarray, U: np.ndarray | None = None,
              shift: int = 1) -> np.ndarray:
         """Return an optimised control sequence U (T x nu) from state x0."""
+        # 记录本次规划的起始时间（用于步态相位等时变 reward 项）
+        self.t0 = self.env.time
         if U is None or U.shape != (self.T, self.nu):
             U = np.zeros((self.T, self.nu))
         else:

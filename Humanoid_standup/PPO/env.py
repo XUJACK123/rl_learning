@@ -3,6 +3,10 @@ from gymnasium import spaces
 import mujoco
 import mujoco.viewer
 import numpy as np
+import os
+
+# humanoid.xml 在上一级目录（Humanoid_standup/），用相对 env.py 的路径定位
+_XML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "humanoid.xml")
 
 class CustomHumanoidWalkingEnv(gym.Env):
     metadata = {
@@ -12,19 +16,19 @@ class CustomHumanoidWalkingEnv(gym.Env):
     def __init__(self, render_mode = None):
         super().__init__()
         self.render_mode = render_mode
-        self.model = mujoco.MjModel.from_xml_path("humanoid.xml")
+        self.model = mujoco.MjModel.from_xml_path(_XML_PATH)
         self.data = mujoco.MjData(self.model)
         self.renderer = None
         self.viewer = None
-        # qpos0为XML中定义的初始姿态
+        # qpos0 为 XML 中定义的初始姿态；初始速度默认是 0（MuJoCo 没有 qvel0 属性）
         self.init_qpos_ = self.model.qpos0.copy()
-        self.init_qvel_ = self.model.qvel0.copy()
+        self.init_qvel_ = np.zeros(self.model.nv)
         self.step_count_ = 0
         self.max_steps_ = 1000
-        self.repeated_steps = 5
+        self.repeated_steps = 3
 
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(45,), dtype=np.float32)
-        self.action_space = spaces.Box(low=self.model.actuator_forcerange[:,0], high=self.model.actuator_forcerange[:,1], shape=(17,), dtype=np.float32)
+        self.action_space = spaces.Box(low=self.model.actuator_ctrlrange[:,0], high=self.model.actuator_ctrlrange[:,1], shape=(17,), dtype=np.float32)
 
     def get_obs_(self):
         quaternion = self.data.qpos[3:7]

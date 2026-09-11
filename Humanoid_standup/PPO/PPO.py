@@ -163,6 +163,7 @@ def main():
     try:
         pbar = tqdm(range(1, num_iterations + 1), desc="PPO 训练", unit="iter")
         for iteration in pbar:
+            # 轨道采样(rollout)：使用旧策略网络与环境交互，搜集T个时间步的数据
             obs, actions, old_log_probs, value, reward, done, next_value, ep_returns, ep_lengths = \
                 rollout(agent, env, num_steps)
 

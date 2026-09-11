@@ -44,9 +44,15 @@
 
 4. 核心训练
 - 轨道采样(rollout)：使用旧策略网络与环境交互，搜集T个时间步的数据
-- ref和actor模型给出各自的概率分布/策略解法，Reward Model进行打分，在最后输出全局标量的分值
-- 价值评估和优势估算：利用Critic网络来估算每个状态的价值(state value)
-- 更新actor的参数(通过优势函数：$$A_t = \underbrace{\left[ r_t + \gamma V(s_{t+1}) \right]}_{\text{动作后的实际总价值}} - \underbrace{V(s_t)}_{\text{动作前的平均预期}}$$)，同时也更新critic参数(依靠reward model给出的实际奖励来进行修正)
+    - 在整条(或整批)轨迹已经完全收集完毕后，拿已经发生过的历史数据倒推算出来的
+    - 单步时序差分误差: $$\sigma_t = r_t + \gamma * V(s_{t+1}) - V(s_t)$$
+    - 多步(广义)时序差分误差: $$A_t = \sigma_t + (\gamma \lambda) \sigma_{t+1} + (\gamma \lambda)^2 \sigma_{t+2} + \dots$$
+- 随机打乱数据, 将收集到的数据D进行随机打乱, 准备进行小批量的随机梯度下降, 主要目标是为了减少更新的方差
+- 策略模型更新: $$L^{\text{clip}}(\theta) = \mathbb{E} \left[ \min \left( r_t(\theta) A_t, \; \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]$$
+    - $A_t$ 为通过 GAE 算出的 $A_t$
+    - 对于好动作（$A_t > 0$）：min 会在 $r_t$ 变大时选中截断项，防止模型太贪婪、更新幅度过大（限制上限）
+    - 对于坏动作（$A_t < 0$）：如果模型误将坏动作的概率改得极高，min 会选中未截断项，解除截断限制，给予极大的梯度惩罚，强制模型迅速纠错（不设下限）
+- 价值模型更新
 
 ## 为什么还需要RL(PPO之类的)
 - SFT只能够教模型什么是正确的，却很难教模型什么是错误的
@@ -64,6 +70,22 @@
     - 正态分布的公式：$$f(x) = \frac{1}{\sigma \sqrt{2\pi}} e^{-\frac{(x - \mu)^2}{2\sigma^2}}$$
     - 偏差平方项 $(a - \mu_\theta(s))^2$:衡量实际执行的动作 $a$ 距离网络预测中心 $\mu_\theta(s)$ 有多远
 
-## 引入重要性采样比值
-- 变量ratio，如果ratio偏离1越大->策略的变化越猛
-- 用ratio来限制住变化
+## 熵价值
+- 前面两种都是强制对动作变化，而后面调用熵价值是更改每一个动作概率
+- 靠反向传播（Backpropagation）与梯度更新
+- 香农熵的公式为: $$\mathcal{S}[\pi_\theta](s_t) = -\sum_{i=1}^{K} p_i \ln(p_i)$$
+    - 分布越倾斜，$\mathcal{S}$ 越小；分布越平均，$\mathcal{S}$ 越大
+- 如果使用熵价值, PPO 的总 Loss 函数形式为：$$\text{Loss}_{\text{total}} = -\mathcal{L}^{\text{clip}} + c_1 \mathcal{L}^{VF} - c_2 \cdot \mathcal{S}[\pi_\theta]$$ 
+    - 要让整体 Loss 越来越小，在数学上就必须让被减数 $c_2 \cdot \mathcal{S}$ 尽可能大
+    - 损失函数中的系数 $c_2$ 通常被设得非常小, 正确动作带来的巨大收益降幅，远远大于失去熵奖励所带来的一点点 Loss 增加。在优化器的眼里，宁可牺牲这点熵，也要把正确动作的概率推上去
+- $$\mathcal{S}[\pi_\theta](s_t) = -\sum_{a_t} \pi_\theta(a_t|s_t) \log \pi_\theta(a_t|s_t)$$
+
+## 共享主干和完全独立独立成两个模型
+- 共享主干: 如经典 RL、机器人控制、视觉游戏
+    - 优点：节省显存，计算速度快。主干网能学习到既有利于“理解环境（估值）”又有利于“做出动作（决策）”的通用特征
+    - 同一个共享网络能同时处理两种更新，靠“梯度的矢量叠加”
+    - $$\boldsymbol{g}_{\text{shared}} = \boldsymbol{g}_{\text{policy}} + c_1 \cdot \boldsymbol{g}_{\text{value}}$$
+- 完全独立独立成两个模型: 如 LLM RLHF，例如 DeepSeek/ChatGPT 训练
+    - 大模型的文本生成和数值打分属于完全不同的任务维度。如果强行共享主干，价值训练的大梯度很容易产生“梯度干扰（Gradient Interference）”，直接破坏策略模型的语言表达与逻辑能力
+    - 策略网络 $\theta$：只用公式 (5) 的策略损失 $$L^{\text{clip}}(\theta) = \mathbb{E} \left[ \min \left( r_t(\theta) A_t, \; \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t \right) \right]$$ 去做梯度更新
+    - 价值网络 $\phi$：只用: $$\mathcal{L}^{\text{VF}}(\phi) = \frac{1}{2} \mathbb{E} \left[ \left( V_\phi(s_t) - G_t \right)^2 \right]$$的均方误差损失 $L^{VF}(\phi)$ 去做梯度更新

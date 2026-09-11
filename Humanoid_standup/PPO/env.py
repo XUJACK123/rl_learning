@@ -72,21 +72,35 @@ class CustomHumanoidWalkingEnv(gym.Env):
         self.data.ctrl[:] = action
         for i in range(self.repeated_steps):
             mujoco.mj_step(self.model, self.data)
-        # 前进奖励
-        reward_forward = 1.0*self.data.qvel[0]
+
+        height = self.data.qpos[2]
+        # 站立因子：高度 1.4=正常站立，0.8=摔倒线。越接近摔倒越接近 0。
+        # 用它给前进奖励加权，堵死“前扑刷速度分”的作弊路径：
+        # 一旦开始前扑（高度下降），前进奖励立刻缩水，逼机器人保持站立的同时前进。
+        standing = min(max((height - 0.8) / (1.4 - 0.8), 0.0), 1.0)
+
+        # 前进奖励（世界系 x 方向速度，乘以站立因子）
+        reward_forward = 1.0 * self.data.qvel[0] * standing
         # 存活奖励
         reward_alive = 0.5
         # 控制代价
-        reward_ctrl = -0.1*np.sum(np.square(action))
+        reward_ctrl = -0.1 * np.sum(np.square(action))
         # 摔倒惩罚
-        if(self.data.qpos[2] <= 0.8):
+        if height <= 0.8:
             reward_fall = -5
             terminated = True
         if self.step_count_ >= self.max_steps_:
             truncated = True
         self.step_count_ += 1
         reward = reward_forward + reward_alive + reward_ctrl + reward_fall
-        info = {"reward_forward": reward_forward, "reward_alive": reward_alive, "reward_ctrl": reward_ctrl, "x_velocity": self.data.qvel[0], "height": self.data.qpos[2]}
+        info = {
+            "reward_forward": reward_forward,
+            "reward_alive": reward_alive,
+            "reward_ctrl": reward_ctrl,
+            "x_velocity": self.data.qvel[0],
+            "height": height,
+            "standing": standing,
+        }
         return self.get_obs_(), reward, terminated, truncated, info
 
     def close(self):

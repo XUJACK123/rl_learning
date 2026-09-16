@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "breadboard-reach-rlinf"
+version = "0.1.0"
+description = "Goal-conditioned Panda breadboard reaching with DDPG, HER and RLinf replay"
+requires-python = ">=3.10"
+dependencies = [
+  "gymnasium>=1.0,<2",
+  "imageio>=2.34,<3",
+  "imageio-ffmpeg>=0.5,<1",
+  "matplotlib>=3.8,<4",
+  "mujoco>=3.3,<4",
+  "mujoco-menagerie==2026.9.0",
+  "numpy>=1.26,<3",
+  "pillow>=10,<13",
+  "torch>=2.3,<3",
+]
+
+[project.optional-dependencies]
+rlinf = ["rlinf @ git+https://github.com/RLinf/RLinf.git@e0531f40d1d07a70bc17709b1f497767d2d1aa8d"]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+breadboard-reach = "breadboard_reach.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["breadboard_reach*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

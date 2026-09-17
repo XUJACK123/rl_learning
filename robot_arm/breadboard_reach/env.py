@@ -30,7 +30,8 @@ def _vec(values: tuple[float, ...] | np.ndarray) -> str:
 def _model_with_breadboard(cfg: TaskConfig, holes: list[Hole]) -> mujoco.MjModel:
     """Compose the published Panda MJCF with simple task geometry in memory."""
     panda = menagerie.get("franka_emika_panda")
-    xml = panda.xml("panda")
+    # 新版 mujoco-menagerie 的 xml() 返回 Path，需要读成字符串再解析
+    xml = panda.xml("panda").read_text(encoding="utf-8")
     root = ET.fromstring(xml)
     option = root.find("option")
     if option is None:
@@ -317,8 +318,8 @@ class BreadboardReachEnv(gym.Env):
                 break
         self._last_action = action
         self._step_count += 1
-        self._append_trace()
         mujoco.mj_forward(self.model, self.data)
+        self._append_trace()
         obs = self._observation()
         currently_at_goal = bool(goal_reached(obs["achieved_goal"], self._goal, self.cfg))
         self._hold_count = self._hold_count + 1 if currently_at_goal and not collision else 0
@@ -344,6 +345,9 @@ class BreadboardReachEnv(gym.Env):
 
     def render(self) -> np.ndarray:
         if self._renderer is None:
+            # 把离屏缓冲区尺寸设成渲染尺寸，否则 Renderer 默认 640x480 会报错
+            self.model.vis.global_.offwidth = self.render_width
+            self.model.vis.global_.offheight = self.render_height
             self._renderer = mujoco.Renderer(
                 self.model, height=self.render_height, width=self.render_width
             )

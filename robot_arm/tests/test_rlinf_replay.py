@@ -14,7 +14,7 @@ class RlinfReplayTests(unittest.TestCase):
         from breadboard_reach.her import Transition
         from breadboard_reach.replay import RlinfHERReplay
 
-        cfg = TaskConfig(max_episode_steps=2)
+        cfg = TaskConfig(max_episode_steps=2, hold_steps=1)
 
         def obs(x):
             return {

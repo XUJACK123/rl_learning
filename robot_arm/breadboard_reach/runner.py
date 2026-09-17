@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from .agent import DDPGAgent
 from .config import TaskConfig, TrainConfig
@@ -187,8 +188,16 @@ def train(
     last_checkpoint_step = step
     last_eval_step = step
     try:
+        progress = tqdm(
+            total=train_cfg.total_steps,
+            initial=step,
+            desc=f"seed {seed}",
+            unit="step",
+            dynamic_ncols=True,
+        )
         while step < train_cfg.total_steps:
             step += 1
+            progress.update(1)
             if step <= train_cfg.warmup_steps:
                 action = rng.uniform(-1.0, 1.0, size=7).astype(np.float32)
             else:
@@ -233,6 +242,14 @@ def train(
                         "replay_samples": replay.total_samples,
                     },
                 )
+                # 更新进度条上的实时指标
+                progress.set_postfix(
+                    ep=episode_id,
+                    ret=f"{episode_return:.0f}",
+                    succ=f"{info['success']}",
+                    err=f"{1000 * info['position_error_m']:.0f}mm",
+                    col=f"{info['collision']}",
+                )
                 episode_id += 1
                 episode = []
                 episode_return = 0.0
@@ -242,17 +259,20 @@ def train(
                         agent, eval_env, episodes=train_cfg.eval_episodes, seed=seed + 100_000
                     )
                     _log(metrics_path, {"type": "eval", "step": step, **{k: v for k, v in result.items() if k != "records"}})
+                    progress.write(f"eval @ {step}: success={result['success_rate']:.3f} collision={result['collision_rate']:.3f}")
                     last_eval_step = step
                 if step - last_checkpoint_step >= train_cfg.checkpoint_interval:
                     _save_checkpoint(
                         run_dir, seed, step, episode_id, agent, replay, rng, task_cfg, train_cfg
                     )
+                    progress.write(f"checkpoint @ {step}")
                     last_checkpoint_step = step
             if step > train_cfg.warmup_steps and replay.total_samples >= train_cfg.batch_size:
                 for _ in range(train_cfg.updates_per_step):
                     losses = agent.update(replay.sample(train_cfg.batch_size))
                 if step % 1000 == 0:
                     _log(metrics_path, {"type": "update", "step": step, **losses})
+        progress.close()
         # Finish a partial episode so all collected transitions have valid
         # boundaries and can be relabeled before the final checkpoint.
         if episode:

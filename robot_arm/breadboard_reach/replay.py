@@ -75,7 +75,7 @@ class RlinfHERReplay:
             enable_cache=True,
             cache_size=cache_episodes,
             sample_window_size=window_episodes,
-            auto_save=True,
+            auto_save=False,
             auto_save_path=str(self.path),
             trajectory_format="pt",
         )

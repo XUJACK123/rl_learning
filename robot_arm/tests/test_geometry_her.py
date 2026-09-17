@@ -49,7 +49,7 @@ class GeometryTests(unittest.TestCase):
         np.testing.assert_allclose(distance, [0, 0.1], atol=1e-6)
         np.testing.assert_allclose(angle, [0, 0], atol=1e-6)
         reward = compute_reward(achieved, desired, {"collision": np.array([0, 1])}, cfg)
-        np.testing.assert_allclose(reward, [0, -6], atol=1e-6)
+        np.testing.assert_allclose(reward, [5, -11], atol=1e-6)
 
 
 class HERTests(unittest.TestCase):
@@ -68,6 +68,7 @@ class HERTests(unittest.TestCase):
                     collision=False,
                     episode_id=7,
                     step_index=index,
+                    shielded=index == 1,
                 )
             )
         samples = relabel_episode(
@@ -76,10 +77,10 @@ class HERTests(unittest.TestCase):
             rng=np.random.default_rng(9),
             reward_fn=lambda a, d, info: compute_reward(a, d, info, cfg),
         )
-        self.assertEqual(len(samples), 20)
+        self.assertEqual(len(samples), 16)
         self.assertEqual(sum(t.future_index is None for t in samples), 4)
         for sample in samples[4:]:
-            self.assertGreaterEqual(sample.future_index, sample.step_index)
+            self.assertGreater(sample.future_index, sample.step_index)
             self.assertEqual(sample.episode_id, 7)
             np.testing.assert_array_equal(
                 sample.observation["desired_goal"], sample.next_observation["desired_goal"]
@@ -91,7 +92,7 @@ class HERTests(unittest.TestCase):
             expected = compute_reward(
                 sample.next_observation["achieved_goal"],
                 sample.next_observation["desired_goal"],
-                {"collision": False},
+                {"collision": False, "shielded": sample.shielded},
                 cfg,
             )
             self.assertEqual(sample.reward, float(expected))

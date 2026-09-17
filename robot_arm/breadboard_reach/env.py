@@ -139,6 +139,9 @@ class BreadboardReachEnv(gym.Env):
         self.available_holes = [h for h in self.holes if split == "all" or h.split == split]
         self.model = _model_with_breadboard(self.cfg, self.holes)
         self.data = mujoco.MjData(self.model)
+        self._shadow = mujoco.MjData(self.model) if self.cfg.action_shield else None
+        self._state_spec = mujoco.mjtState.mjSTATE_INTEGRATION
+        self._state_buffer = np.empty(mujoco.mj_stateSize(self.model, self._state_spec))
         self._renderer: mujoco.Renderer | None = None
         self.render_mode = render_mode
         self.render_width, self.render_height = render_width, render_height
@@ -183,6 +186,7 @@ class BreadboardReachEnv(gym.Env):
         self._hole: Hole | None = None
         self._goal = np.zeros(7, dtype=np.float32)
         self._last_action = np.zeros(7, dtype=np.float32)
+        self._joint_target = np.zeros(7, dtype=np.float64)
         self._step_count = 0
         self._hold_count = 0
         self._success_once = False
@@ -230,15 +234,56 @@ class BreadboardReachEnv(gym.Env):
             "desired_goal": self._goal.copy(),
         }
 
-    def _has_collision(self) -> bool:
-        for index in range(self.data.ncon):
-            contact = self.data.contact[index]
+    def _collision_pair(self, data: mujoco.MjData | None = None) -> tuple[str, str] | None:
+        data = self.data if data is None else data
+        def label(geom_id: int) -> str:
+            name = self.model.geom(geom_id).name
+            if name:
+                return name
+            body_id = int(self.model.geom_bodyid[geom_id])
+            return f"{self.model.body(body_id).name}/geom_{geom_id}"
+
+        for index in range(data.ncon):
+            contact = data.contact[index]
             geom1, geom2 = int(contact.geom1), int(contact.geom2)
             if geom1 in self._hazard_geom_ids and self.model.geom_bodyid[geom2] != 0:
-                return True
+                return (label(geom1), label(geom2))
             if geom2 in self._hazard_geom_ids and self.model.geom_bodyid[geom1] != 0:
-                return True
-        return False
+                return (label(geom2), label(geom1))
+        return None
+
+    def _has_collision(self, data: mujoco.MjData | None = None) -> bool:
+        return self._collision_pair(data) is not None
+
+    def _safe_action(self, requested: np.ndarray) -> tuple[np.ndarray, bool, bool]:
+        if self._shadow is None:
+            return requested, False, False
+        if self._has_collision():
+            return np.zeros_like(requested), True, True
+        mujoco.mj_getState(self.model, self.data, self._state_buffer, self._state_spec)
+        current_target = self._joint_target.copy()
+        candidates = [requested * (0.5**attempt) for attempt in range(self.cfg.max_action_halvings + 1)]
+        candidates.extend(-requested * scale for scale in (0.5, 1.0))
+        candidates.extend(-self._last_action * scale for scale in (0.5, 1.0))
+        candidates.append(np.zeros_like(requested))
+        for attempt, action in enumerate(candidates):
+            mujoco.mj_setState(self.model, self._shadow, self._state_buffer, self._state_spec)
+            self._shadow.ctrl[self._actuator_ids] = np.clip(
+                current_target + self.cfg.max_joint_delta * action,
+                self._joint_low + 0.01,
+                self._joint_high - 0.01,
+            )
+            self._shadow.ctrl[self._finger_actuator_id] = 255
+            mujoco.mj_forward(self.model, self._shadow)
+            safe = not self._has_collision(self._shadow)
+            for _ in range(self._substeps):
+                if not safe:
+                    break
+                mujoco.mj_step(self.model, self._shadow)
+                safe = not self._has_collision(self._shadow)
+            if safe:
+                return action.astype(np.float32), attempt != 0, False
+        return np.zeros_like(requested), True, True
 
     def _append_trace(self) -> None:
         if self._trace_count >= len(self._trace_site_ids):
@@ -268,9 +313,19 @@ class BreadboardReachEnv(gym.Env):
 
         home_key = self._id(mujoco.mjtObj.mjOBJ_KEY, "home")
         mujoco.mj_resetDataKeyframe(self.model, self.data, home_key)
-        if self.cfg.reset_joint_noise:
+        home_positions = options.get("joint_positions", self.cfg.home_joint_positions)
+        if home_positions is not None:
+            home_positions = np.asarray(home_positions, dtype=np.float64)
+            if home_positions.shape != (7,) or not np.isfinite(home_positions).all():
+                raise ValueError("joint_positions must contain seven finite values")
+            self.data.qpos[self._qpos_addr] = np.clip(
+                home_positions, self._joint_low + 0.02, self._joint_high - 0.02
+            )
+        self.data.qvel[:] = 0
+        joint_noise = float(options.get("joint_noise", self.cfg.reset_joint_noise))
+        if joint_noise:
             noise = self.np_random.uniform(
-                -self.cfg.reset_joint_noise, self.cfg.reset_joint_noise, size=7
+                -joint_noise, joint_noise, size=7
             )
             self.data.qpos[self._qpos_addr] = np.clip(
                 self.data.qpos[self._qpos_addr] + noise,
@@ -278,6 +333,7 @@ class BreadboardReachEnv(gym.Env):
                 self._joint_high - 0.02,
             )
         self.data.ctrl[self._actuator_ids] = self.data.qpos[self._qpos_addr]
+        self._joint_target = self.data.ctrl[self._actuator_ids].copy()
         self.data.ctrl[self._finger_actuator_id] = 255
         self._last_action.fill(0)
         self._step_count = self._hold_count = 0
@@ -302,21 +358,23 @@ class BreadboardReachEnv(gym.Env):
         if action.shape != (7,) or not np.isfinite(action).all():
             raise ValueError("Action must contain seven finite values")
         action = np.clip(action, -1, 1)
-        current = self.data.qpos[self._qpos_addr].copy()
-        target = np.clip(
-            current + self.cfg.max_joint_delta * action,
-            self._joint_low + 0.01,
-            self._joint_high - 0.01,
-        )
-        self.data.ctrl[self._actuator_ids] = target
-        self.data.ctrl[self._finger_actuator_id] = 255
+        executed_action, shielded, blocked = self._safe_action(action)
         collision = False
-        for _ in range(self._substeps):
-            mujoco.mj_step(self.model, self.data)
-            collision = collision or self._has_collision()
-            if collision:
-                break
-        self._last_action = action
+        if not blocked:
+            target = np.clip(
+                self._joint_target + self.cfg.max_joint_delta * executed_action,
+                self._joint_low + 0.01,
+                self._joint_high - 0.01,
+            )
+            self._joint_target = target.copy()
+            self.data.ctrl[self._actuator_ids] = target
+            self.data.ctrl[self._finger_actuator_id] = 255
+            for _ in range(self._substeps):
+                mujoco.mj_step(self.model, self.data)
+                collision = collision or self._has_collision()
+                if collision:
+                    break
+        self._last_action = executed_action
         self._step_count += 1
         mujoco.mj_forward(self.model, self.data)
         self._append_trace()
@@ -327,7 +385,7 @@ class BreadboardReachEnv(gym.Env):
         if collision:
             self._success_once = False
         position_error, angular_error = pose_error(obs["achieved_goal"], self._goal)
-        reward = float(self.compute_reward(obs["achieved_goal"], self._goal, {"collision": collision}))
+        reward = float(self.compute_reward(obs["achieved_goal"], self._goal, {"collision": collision, "shielded": shielded}))
         terminated = bool(collision)
         truncated = self._step_count >= self.cfg.max_episode_steps and not terminated
         info = {
@@ -340,6 +398,10 @@ class BreadboardReachEnv(gym.Env):
             "hold_count": self._hold_count,
             "success": self._success_once,
             "collision": collision,
+            "collision_pair": self._collision_pair(),
+            "shielded": shielded,
+            "blocked": blocked,
+            "executed_action": executed_action.copy(),
         }
         return obs, reward, terminated, truncated, info
 

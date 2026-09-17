@@ -186,10 +186,13 @@ def visualize_checkpoint(
                         "hold_count": info["hold_count"],
                         "success": info["success"],
                         "collision": info["collision"],
+                        "shielded": info["shielded"],
+                        "blocked": info["blocked"],
                         "terminated": terminated,
                         "truncated": truncated,
                     }
                     row.update({f"action_{i+1}": float(action[i]) for i in range(7)})
+                    row.update({f"executed_action_{i+1}": float(info["executed_action"][i]) for i in range(7)})
                     row.update(
                         {f"tcp_{axis}": float(next_observation["achieved_goal"][i]) for i, axis in enumerate("xyz")}
                     )
@@ -228,6 +231,8 @@ def visualize_checkpoint(
                     "collision": bool(last_info["collision"]),
                     "position_error_m": float(last_info["position_error_m"]),
                     "angular_error_deg": float(last_info["angular_error_deg"]),
+                    "shielded_steps": sum(int(row["shielded"]) for row in rows),
+                    "blocked_steps": sum(int(row["blocked"]) for row in rows),
                     "first_success_step": first_success_step,
                     "episode_csv": f"{filename}.csv",
                     "episode_video": f"{filename}.mp4" if mode == "record" else None,

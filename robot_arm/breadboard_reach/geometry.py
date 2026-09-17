@@ -91,9 +91,15 @@ def goal_reached(achieved: np.ndarray, desired: np.ndarray, cfg: TaskConfig) -> 
 def compute_reward(
     achieved: np.ndarray, desired: np.ndarray, info: dict | None, cfg: TaskConfig
 ) -> np.ndarray:
-    """Sparse goal reward plus a goal-independent contact penalty, vectorized."""
+    """Dense pose reward with goal-independent collision and shield costs."""
+    distance, angle = pose_error(achieved, desired)
     reached = goal_reached(achieved, desired, cfg)
     collision = 0 if info is None else info.get("collision", 0)
-    return np.asarray(reached, dtype=np.float32) - 1.0 - cfg.collision_penalty * np.asarray(
-        collision, dtype=np.float32
+    shielded = 0 if info is None else info.get("shielded", 0)
+    return (
+        -np.asarray(distance, dtype=np.float32) / cfg.position_reward_scale
+        -0.5 * np.asarray(angle, dtype=np.float32) / np.deg2rad(cfg.angular_reward_scale_deg)
+        +cfg.success_bonus * np.asarray(reached, dtype=np.float32)
+        -cfg.collision_penalty * np.asarray(collision, dtype=np.float32)
+        -cfg.shield_penalty * np.asarray(shielded, dtype=np.float32)
     )

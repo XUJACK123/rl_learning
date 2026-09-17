@@ -70,6 +70,21 @@ class AgentReplayTests(unittest.TestCase):
         self.assertEqual(tuple(packed.rewards.shape), (1, 1, 1))
         self.assertTrue(bool(packed.truncations[0, 0, 0]))
 
+    def test_relative_goal_encoding_is_quaternion_sign_invariant(self):
+        import torch
+
+        from breadboard_reach.agent import _encode
+
+        state = torch.zeros(28)
+        state[14:21] = torch.tensor([0.4, 0.0, 0.3, 0.0, 1.0, 0.0, 0.0])
+        goal = torch.tensor([0.5, 0.0, 0.3, 0.0, 1.0, 0.0, 0.0])
+        first = _encode({"observation": state, "desired_goal": goal}, torch.device("cpu"))
+        flipped = goal.clone()
+        flipped[3:] *= -1
+        second = _encode({"observation": state, "desired_goal": flipped}, torch.device("cpu"))
+        self.assertAlmostEqual(float(first[0, -7]), 0.5)
+        torch.testing.assert_close(first[0, -7:], second[0, -7:])
+
 
 if __name__ == "__main__":
     unittest.main()

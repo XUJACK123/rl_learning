@@ -7,6 +7,8 @@ from typing import Callable
 
 import numpy as np
 
+from .geometry import pose_error
+
 
 Observation = dict[str, np.ndarray]
 
@@ -22,6 +24,7 @@ class Transition:
     collision: bool
     episode_id: int
     step_index: int
+    shielded: bool = False
     future_index: int | None = None
 
 
@@ -54,8 +57,17 @@ def relabel_episode(
         raise ValueError("HER input episode must end in termination or truncation")
     result = list(episode)
     for index, transition in enumerate(episode):
+        current_goal = transition.next_observation["achieved_goal"]
+        eligible = []
+        for future_index in range(index + 1, len(episode)):
+            future_goal = episode[future_index].next_observation["achieved_goal"]
+            distance, angle = pose_error(current_goal, future_goal)
+            if float(distance) > 0.005 or float(angle) > np.deg2rad(5):
+                eligible.append(future_index)
+        if not eligible:
+            continue
         for _ in range(future_k):
-            future_index = int(rng.integers(index, len(episode)))
+            future_index = eligible[int(rng.integers(len(eligible)))]
             future_goal = episode[future_index].next_observation["achieved_goal"]
             next_obs = _copy_with_goal(transition.next_observation, future_goal)
             reward = float(
@@ -63,7 +75,7 @@ def relabel_episode(
                     reward_fn(
                         next_obs["achieved_goal"],
                         future_goal,
-                        {"collision": transition.collision},
+                        {"collision": transition.collision, "shielded": transition.shielded},
                     )
                 )
             )

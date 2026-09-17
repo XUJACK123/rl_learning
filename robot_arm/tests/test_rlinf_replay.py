@@ -39,8 +39,8 @@ class RlinfReplayTests(unittest.TestCase):
                     rng=np.random.default_rng(1),
                     reward_fn=lambda a, d, info: compute_reward(a, d, info, cfg),
                 )
-                self.assertEqual(count, 10)
-                self.assertEqual(replay.total_samples, 10)
+                self.assertEqual(count, 6)
+                self.assertEqual(replay.total_samples, 6)
                 batch = replay.sample(4)
                 self.assertEqual(batch["curr_obs"]["desired_goal"].shape[-1], 7)
                 self.assertEqual(batch["actions"].shape[-1], 7)
@@ -53,7 +53,7 @@ class RlinfReplayTests(unittest.TestCase):
             )
             try:
                 restored.load_checkpoint(root / "snapshot")
-                self.assertEqual(restored.total_samples, 10)
+                self.assertEqual(restored.total_samples, 6)
                 self.assertEqual(restored.sample(4)["rewards"].shape[0], 4)
             finally:
                 restored.close()

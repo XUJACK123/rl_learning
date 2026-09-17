@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "breadboard-reach-rlinf"
 version = "0.1.0"
 description = "Goal-conditioned Panda breadboard reaching with DDPG, HER and RLinf replay"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.13"
 dependencies = [
   "gymnasium>=1.0,<2",
   "imageio>=2.34,<3",

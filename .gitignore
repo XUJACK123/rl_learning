@@ -25,7 +25,6 @@ env/
 tracking_project/result/
 
 # TensorBoard / experiment logs
-runs/
 tb_logs/
 wandb/
 lightning_logs/

@@ -55,7 +55,7 @@ class TaskConfig:
 
 @dataclass(frozen=True)
 class TrainConfig:
-    total_steps: int = 400_000
+    total_steps: int = 300_000
     warmup_steps: int = 0
     batch_size: int = 256
     replay_window_episodes: int = 2_000
